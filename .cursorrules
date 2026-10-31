@@ -1,0 +1,160 @@
+# FlatMate OS - Strict AI Architecture & Coding Directives
+
+You are the Principal AI Architect and Senior Staff Engineer on FlatMate OS. FlatMate OS is a zero-cost, offline-first Progressive Web Application (PWA) built with React, Vite, TypeScript, and Tailwind CSS, backed by Google Sheets and Google Apps Script (GAS) acting as a serverless REST API.
+
+Every line of code you write must conform strictly to the specifications, directory conventions, and architectural boundaries defined herein. Zero deviation is permitted.
+
+---
+
+## 1. Allowed Patterns & Architectural Paradigms
+
+1. **Clean Feature-Slice Architecture**
+   - The codebase must be strictly organized by functional domain under `src/features/`.
+   - Domains: `inventory`, `expenses`, `settlements`, `pantry-audit`.
+   - Common/reusable elements belong strictly in `src/components/ui/`, `src/lib/`, or `src/hooks/`.
+
+2. **Repository & Service Layer Pattern**
+   - Direct HTTP calls (`fetch`, `axios`, etc.) inside React UI components are strictly banned.
+   - All external communication with Google Apps Script must pass through typed services implementing explicit interface contracts (`src/services/api/`).
+   - The API Client must manage optimistic updates, retry policies with exponential backoff, and state synchronization with client storage.
+
+3. **Offline-First & Optimistic State Management**
+   - Cache-first strategy: Read operations must immediately return locally cached data (`IndexedDB` via `idb-keyval` or `localStorage`), then revalidate against GAS in the background (SWR pattern).
+   - Write operations: UI state updates optimistically before network confirmation. If the GAS network request fails after 3 retries, rollback the optimistic update and trigger a user-facing toast alert.
+
+4. **Greedy Debt Minimization Algorithm**
+   - Peer-to-peer settlement logic must strictly follow the Greedy Cash-Flow algorithm ($O(N \log N)$) to resolve group balances into the absolute minimum number of discrete transactions.
+   - Split rules:
+     - Global items: Split equally across all active house members ($N_{all}$).
+     - Subgroup items: Split strictly across active members mapped in `map_member_group` ($N_{sub}$).
+
+5. **Essential Stock Prioritization Engine**
+   - Inventory items must evaluate urgency via a calculated Priority Score:
+     - Tier 1 (Score 1): Essential (`is_essential = true`) + `OUT_OF_STOCK` (Tagged with `★ ItemName *`)
+     - Tier 2 (Score 2): Essential (`is_essential = true`) + `LOW_STOCK`
+     - Tier 3 (Score 6): Non-essential (`is_essential = false`) + `OUT_OF_STOCK`
+     - Tier 4 (Score 7): Non-essential (`is_essential = false`) + `LOW_STOCK`
+     - Tier 5 (Score 10): `IN_STOCK` (Excluded from active Buy Lists)
+
+---
+
+## 2. Mandatory Directory Structure
+
+Every new file must be placed in this exact structure. Do not invent arbitrary folders:
+
+flatmate-os/
+├── .cursorrules
+├── .env.example
+├── .gitignore
+├── .dockerignore
+├── index.html
+├── package.json
+├── tsconfig.json
+├── tsconfig.node.json
+├── vite.config.ts
+├── tailwind.config.js
+├── postcss.config.js
+├── .vscode/
+│   ├── extensions.json
+│   └── settings.json
+├── public/
+│   ├── favicon.ico
+│   ├── icon-192.png
+│   ├── icon-512.png
+│   └── manifest.webmanifest
+├── src/
+│   ├── main.tsx
+│   ├── App.tsx
+│   ├── vite-env.d.ts
+│   ├── components/
+│   │   ├── layout/
+│   │   │   ├── Header.tsx
+│   │   │   ├── BottomNav.tsx
+│   │   │   └── Shell.tsx
+│   │   └── ui/
+│   │       ├── Badge.tsx
+│   │       ├── Button.tsx
+│   │       ├── Card.tsx
+│   │       ├── Input.tsx
+│   │       ├── Modal.tsx
+│   │       └── Toast.tsx
+│   ├── features/
+│   │   ├── inventory/
+│   │   │   ├── components/
+│   │   │   ├── hooks/
+│   │   │   ├── types.ts
+│   │   │   └── inventorySlice.ts
+│   │   ├── expenses/
+│   │   │   ├── components/
+│   │   │   ├── hooks/
+│   │   │   ├── types.ts
+│   │   │   └── expenseSlice.ts
+│   │   └── settlements/
+│   │       ├── components/
+│   │       ├── hooks/
+│   │       ├── utils/
+│   │       │   ├── debtSimplifier.ts
+│   │       │   └── upiDeepLink.ts
+│   │       └── types.ts
+│   ├── hooks/
+│   │   ├── useOnlineStatus.ts
+│   │   └── useLocalStorage.ts
+│   ├── lib/
+│   │   ├── constants.ts
+│   │   ├── idb.ts
+│   │   └── utils.ts
+│   ├── services/
+│   │   ├── api/
+│   │   │   ├── gasClient.ts
+│   │   │   └── gasEndpoints.ts
+│   │   └── telegram/
+│   │       └── alertService.ts
+│   └── types/
+│       ├── database.ts
+│       └── api.ts
+└── backend/
+└── apps-script/
+├── Code.js
+└── appsscript.json
+
+
+---
+
+## 3. Approved Tech Stack & Utilities
+
+- **Language**: TypeScript 5.x (Strict mode enabled, `noImplicitAny: true`, `strictNullChecks: true`).
+- **Framework**: React 18.x (Functional components only; React Hooks).
+- **Build Tool**: Vite 5.x.
+- **PWA Tooling**: `vite-plugin-pwa` with explicit Service Worker caching policies.
+- **Styling**: Tailwind CSS 3.x (Utility-first styling only; no external CSS frameworks, no CSS Modules).
+- **Icons**: `lucide-react`.
+- **Client Storage**: Native `IndexedDB` wrapped via `idb-keyval` for structured cache, `localStorage` for UI preference toggles.
+- **Date Handling**: Native `Intl.DateTimeFormat` or `date-fns` (modular imports only).
+
+---
+
+## 4. Restrictive Ignore List (Strict Anti-Patterns)
+
+1. **NO Heavyweight State Libraries**: Redux, MobX, and Zustand are strictly forbidden. Use React Context with `useReducer` or custom hook stores + IndexedDB. The app is lightweight.
+2. **NO Heavy Component Kits**: MUI, Ant Design, Chakra UI, and Bootstrap are strictly forbidden. Use headless Tailwind CSS primitives.
+3. **NO Direct External API Calls from Browser to Telegram**: Client-side Telegram API calls expose bot tokens. All notification triggers must route through Google Apps Script backend routines.
+4. **NO Raw/Untyped Object Manipulation**: Never use `any`. Define comprehensive TypeScript types in `src/types/database.ts` matching the Google Sheet relational schema (`dim_members`, `dim_groups`, `map_member_group`, `dim_inventory`, `fact_expense_logs`, `fact_stock_events`).
+5. **NO Unbounded File Sizes**: No single component file may exceed 200 lines of code. Extract sub-components, helper utilities, or custom hooks immediately when reaching this limit.
+6. **NO Inline Calculation of Complex Algorithms**: Algorithms like `SIMPLIFY_DEBTS` must live isolated in pure, deterministic utility files with unit test coverage (`src/features/settlements/utils/debtSimplifier.ts`).
+7. **NO Hardcoded Currency / UPI Strings**: UPI link generation must be validated via `encodeURIComponent` through `src/features/settlements/utils/upiDeepLink.ts`.
+
+---
+
+## 5. Coding Style & Linting Specifications
+
+- **File Naming**:
+  - React Components: `PascalCase.tsx` (e.g., `ExpenseCard.tsx`).
+  - Hooks: `camelCase.ts` prefixed with `use` (e.g., `useInventorySync.ts`).
+  - Utilities and Services: `camelCase.ts` (e.g., `gasClient.ts`).
+  - Type Definitions: `kebab-case.ts` or `types.ts` within the respective feature folder.
+- **Type Safety**:
+  - All API request and response bodies must have strict Zod or TypeScript schema definitions.
+  - Optional chaining (`?.`) and nullish coalescing (`??`) are required over loose conditional checks.
+- **Component Breakdown**:
+  - Container/Presenter separation: Keep data-fetching hooks separated from pure visual UI components.
+  - Memoization: Apply `useMemo` and `useCallback` on heavy iterative operations (such as sorting inventory tables or mapping transactions).

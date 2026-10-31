@@ -1,0 +1,70 @@
+function seedDatabase() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // Helper function to wipe old test data before inserting new data
+  function clearSheetData(sheetName) {
+    const sheet = ss.getSheetByName(sheetName);
+    if (sheet && sheet.getLastRow() > 1) {
+      sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).clearContent();
+    }
+    return sheet;
+  }
+
+  // 1. Seed Members (4 Flatmates)
+  const membersSheet = clearSheetData("dim_members");
+  membersSheet.appendRow(["USR_01", "Siddharth", "siddharth@ybl", true]);
+  membersSheet.appendRow(["USR_02", "Rahul", "rahul@okhdfcbank", true]);
+  membersSheet.appendRow(["USR_03", "Amit", "amit@icici", true]);
+  membersSheet.appendRow(["USR_04", "Vikram", "vikram@paytm", true]);
+
+  // 2. Seed Groups
+  const groupsSheet = clearSheetData("dim_groups");
+  groupsSheet.appendRow(["GRP_ALL", "Global Household", 10000]);
+  groupsSheet.appendRow(["GRP_VEG", "Vegetarian Staples", 4000]);
+  groupsSheet.appendRow(["GRP_NONVEG", "Non-Veg Pool", 3000]);
+  groupsSheet.appendRow(["GRP_TEA", "Chai Lovers", 1000]);
+
+  // 3. Seed Member-to-Group Mapping
+  const mapSheet = clearSheetData("map_member_group");
+  // Everyone is in Global
+  mapSheet.appendRow(["MAP_1", "GRP_ALL", "USR_01"]);
+  mapSheet.appendRow(["MAP_2", "GRP_ALL", "USR_02"]);
+  mapSheet.appendRow(["MAP_3", "GRP_ALL", "USR_03"]);
+  mapSheet.appendRow(["MAP_4", "GRP_ALL", "USR_04"]);
+  // Amit & Vikram are in Non-Veg
+  mapSheet.appendRow(["MAP_5", "GRP_NONVEG", "USR_03"]);
+  mapSheet.appendRow(["MAP_6", "GRP_NONVEG", "USR_04"]);
+  // Siddharth, Rahul, Vikram drink Tea
+  mapSheet.appendRow(["MAP_7", "GRP_TEA", "USR_01"]);
+  mapSheet.appendRow(["MAP_8", "GRP_TEA", "USR_02"]);
+  mapSheet.appendRow(["MAP_9", "GRP_TEA", "USR_04"]);
+
+  // 4. Seed Inventory Items
+  const inventorySheet = clearSheetData("dim_inventory");
+  inventorySheet.appendRow(["ITM_01", "Cooking Oil (1L)", "GRP_ALL", true, "LOW_STOCK"]);
+  inventorySheet.appendRow(["ITM_02", "Dishwash Liquid", "GRP_ALL", true, "OUT_OF_STOCK"]);
+  inventorySheet.appendRow(["ITM_03", "Eggs (1 Dozen)", "GRP_NONVEG", false, "IN_STOCK"]);
+  inventorySheet.appendRow(["ITM_04", "Basmati Rice (5kg)", "GRP_ALL", true, "IN_STOCK"]);
+  inventorySheet.appendRow(["ITM_05", "Chicken (1kg)", "GRP_NONVEG", false, "OUT_OF_STOCK"]);
+  inventorySheet.appendRow(["ITM_06", "Toor Dal (1kg)", "GRP_VEG", true, "LOW_STOCK"]);
+  inventorySheet.appendRow(["ITM_07", "Tata Tea Gold", "GRP_TEA", true, "OUT_OF_STOCK"]);
+  inventorySheet.appendRow(["ITM_08", "Milk (1L)", "GRP_ALL", true, "LOW_STOCK"]);
+  inventorySheet.appendRow(["ITM_09", "Garbage Bags", "GRP_ALL", true, "IN_STOCK"]);
+  inventorySheet.appendRow(["ITM_10", "Maggi (6 Pack)", "GRP_ALL", false, "IN_STOCK"]);
+
+  // 5. Seed Historical Expenses to test Settlement Math
+  const expensesSheet = clearSheetData("fact_expense_logs");
+  const yesterday = new Date(new Date().setDate(new Date().getDate() - 1)).toISOString();
+  const twoDaysAgo = new Date(new Date().setDate(new Date().getDate() - 2)).toISOString();
+
+  // Siddharth paid ₹1500 for global groceries
+  expensesSheet.appendRow(["EXP_001", twoDaysAgo, "Dmart Grocery Run", "GRP_ALL", "USR_01", 1500]);
+  // Amit paid ₹450 for chicken & eggs (Non-Veg pool)
+  expensesSheet.appendRow(["EXP_002", yesterday, "Chicken & Eggs", "GRP_NONVEG", "USR_03", 450]);
+  // Rahul paid ₹120 for milk and bread (Global)
+  expensesSheet.appendRow(["EXP_003", yesterday, "Milk & Bread", "GRP_ALL", "USR_02", 120]);
+  // Vikram paid ₹150 for Tea (Tea pool)
+  expensesSheet.appendRow(["EXP_004", yesterday, "Tata Tea Gold", "GRP_TEA", "USR_04", 150]);
+
+  SpreadsheetApp.getUi().alert("✅ Full mock dataset inserted successfully!");
+}

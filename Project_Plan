@@ -1,0 +1,272 @@
+# FlatMate OS: End-User Experience & Frontend Implementation Plan
+
+This plan is focused purely on the **end-user perspective**, **visual design**, and **frontend client implementation**. It outlines what flatmates see on their phones and desktops, how they interact with each screen, and how GitHub Copilot will build the React components.
+
+---
+
+## 1. End-User Journey & Screen Flow
+
+Flatmates interact with the app via four intuitive tabs in a mobile-first Progressive Web App (PWA) layout:
+
+```
+┌────────────────────────────────────────────────────────┐
+│                      SCREEN FLOW                       │
+├───────────────────┬────────────────────────────────────┤
+│ View              │ Primary User Goal                  │
+├───────────────────┼────────────────────────────────────┤
+│ 1. Smart Buy List │ At store/Zepto: See what is out    │
+│                   │ of stock; tap "Bought It".         │
+├───────────────────┼────────────────────────────────────┤
+│ 2. Kitchen Pantry │ In flat: 1-tap toggles to mark     │
+│                   │ items In Stock, Low, or Empty.     │
+├───────────────────┼────────────────────────────────────┤
+│ 3. Expense Ledger │ Track who paid what, view house    │
+│                   │ budget burn progress, log bills.   │
+├───────────────────┼────────────────────────────────────┤
+│ 4. Settlement Hub │ Month-end: Tap "Pay via UPI" to    │
+│                   │ settle flat debts with zero math.  │
+└───────────────────┴────────────────────────────────────┘
+
+```
+
+---
+
+## 2. Detailed View Specifications
+
+### View 1: Smart Buy List (The "Supermarket View")
+
+* **User Goal**: Open this screen in a grocery aisle or quick-commerce app (Blinkit, Zepto, Instamart) to immediately know what needs to be purchased without asking around.
+* **Visual Elements**:
+* **Top Summary**: Count badge (e.g., `3 items to restock`).
+* **Priority Ranking**:
+* **Top Section**: Critical staples highlighted with an amber `★ Essential *` badge and a red status pill (`OUT OF STOCK`). E.g., *Sunflower Oil (5L)*, *Milk Packets*.
+* **Middle Section**: Non-essential empty items (e.g., *Snacks*, *Soft Drinks*).
+* **Bottom Section**: Items marked `LOW STOCK` (warning before they completely run out).
+
+
+* **Action Button**: Each card has a prominent emerald-green **"Bought It"** button.
+
+
+* **User Interaction**:
+* Tapping **"Bought It"** pops up a mini-dialog pre-filled with the item's details.
+* The user inputs the purchase cost (e.g., `₹340`), confirms who paid, and taps **Save**.
+* The card immediately vanishes from the Buy List, the pantry stock flips to `IN_STOCK`, and the transaction is recorded in the ledger.
+
+
+
+---
+
+### View 2: Kitchen Pantry Inventory (The "Flat Manager")
+
+* **User Goal**: Allow anyone walking into the kitchen or opening a cabinet to audit household stock in seconds.
+* **Visual Elements**:
+* **Group Filter Bar**: Filter chips at the top: `All Items`, `Common House`, `Non-Veg Staples`, `Veg Special`.
+* **Pantry Item Card**:
+* Item title with unit (e.g., *Atta (10kg)*, *Dishwash Bar*).
+* Category icon and last restocked date.
+* Assigned Group pill (e.g., `All Flatmates`, `Subgroup Non-Veg`).
+
+
+* **Interactive 3-State Toggle Switch**:
+* `[ In Stock ]` (Green)
+* `[ Low ]` (Amber)
+* `[ Empty ]` (Rose/Red)
+
+
+
+
+* **User Interaction**:
+* When oil runs out during cooking, the cook taps `[ Empty ]`.
+* The UI updates instantly, and an optional Telegram notification can notify flatmates that an essential item is empty.
+
+
+
+---
+
+### View 3: Expense Ledger & Budget Progress
+
+* **User Goal**: Maintain financial transparency and monitor monthly budget caps.
+* **Visual Elements**:
+* **Common House Budget Bar**: Progress meter displaying:
+* `₹3,150 / ₹4,500 spent (70%)`
+* Colored bar turns amber at 75% and red above 90%.
+
+
+* **Subgroup Breakdown Cards**:
+* Subgroup A Spend: `₹1,420`
+* Subgroup B Spend: `₹680`
+
+
+* **Floating Action Button (+)**: Opens the full manual expense entry modal for general grocery shopping trips.
+* **Recent Transactions List**: Itemized scrollable list showing: item name, date, who paid, split group, and amount in bold INR (`₹`).
+
+
+
+---
+
+### View 4: Settlement Hub & 1-Tap UPI Launch
+
+* **User Goal**: Resolve all month-end debts with minimal transactions and zero manual calculation.
+* **Visual Elements**:
+* **Simplified Debt Cards**: The Greedy algorithm groups all transactions into the fewest possible clean payments.
+* Example Card:
+```
+Rahul  ───►  Siddharth
+UPI ID: siddharth@okhdfcbank
+Amount: ₹420.00
+[ Pay via UPI ]
+
+```
+
+
+
+
+* **UPI Deep Link Integration**:
+* Tapping **"Pay via UPI"** creates an NPCI-compliant intent link (`upi://pay?pa=...`).
+* On mobile (Android/iOS), this triggers the OS payment sheet, opening Google Pay, PhonePe, or Paytm with the payee and exact amount pre-populated.
+
+
+* **Account Balances Overview**: Expandable section showing each member's total money paid vs. total fair share consumed.
+
+
+
+---
+
+## 3. UI/UX Design System & Styling Rules
+
+* **Design Palette**: Dark-mode-first aesthetic using Tailwind CSS v4:
+* Background: `bg-slate-950`
+* Cards / Containers: `bg-slate-900` with `border-slate-800`
+* Accent / Brand: `indigo-600`
+* Success / In-Stock: `emerald-500`
+* Warning / Low: `amber-500`
+* Danger / Out-of-Stock: `rose-500`
+
+
+* **Typography**: Clean system sans-serif font (`font-sans`), with tabular numbers (`font-mono`) for monetary figures to align decimal points.
+* **Touch-Friendly Controls**: Minimum button touch target of $44 \times 44\text{ px}$ for mobile ergonomics.
+* **Responsive Shell**:
+* Mobile: Edge-to-edge layout with a fixed bottom navigation bar (`BottomNav.tsx`).
+* Desktop / Tablet: Centered container (`max-w-4xl`) with top navigation pills.
+
+
+
+---
+
+## 4. Frontend Component Architecture (Folder Breakdown)
+
+GitHub Copilot will scaffold and construct the frontend following this modular directory structure:
+
+```
+src/
+├── components/
+│   ├── layout/
+│   │   ├── Shell.tsx             # Responsive container wrapper
+│   │   ├── Header.tsx            # Sticky header with connection badge
+│   │   └── BottomNav.tsx         # Mobile bottom tab navigation
+│   └── ui/
+│       ├── Badge.tsx             # Reusable status & essential tags
+│       ├── Button.tsx            # Touch-friendly button primitive
+│       ├── Card.tsx              # Base slate card container
+│       └── Modal.tsx             # Animated dialog overlay
+├── features/
+│   ├── inventory/
+│   │   ├── components/
+│   │   │   ├── SmartBuyList.tsx  # Out-of-stock & priority view
+│   │   │   ├── PantryGrid.tsx    # All items with 3-state stock toggles
+│   │   │   └── RestockModal.tsx  # Mini-modal for "Bought It" action
+│   │   └── hooks/
+│   │       └── useInventory.ts   # Sorting, filtering, and priority logic
+│   ├── expenses/
+│   │   ├── components/
+│   │   │   ├── ExpenseModal.tsx  # Manual expense logging form
+│   │   │   ├── BudgetBurn.tsx    # Budget target progress meter
+│   │   │   └── TransactionList.tsx# Audit list of past purchases
+│   │   └── hooks/
+│   │       └── useExpenses.ts    # Expense calculations & group sums
+│   └── settlements/
+│       ├── components/
+│       │   ├── SettlementHub.tsx # Debt card grid with UPI buttons
+│       │   └── BalanceSummary.tsx# Individual paid vs consumed table
+│       └── utils/
+│           ├── debtSimplifier.ts # Greedy Cash-Flow algorithm
+│           └── upiDeepLink.ts    # URL-encoded UPI intent builder
+├── services/
+│   └── api/
+│       └── gasClient.ts          # SWR & IndexedDB local caching
+└── App.tsx                       # Main view orchestration & tab state
+
+```
+
+---
+
+## 5. Step-by-Step Frontend Construction Plan
+
+### Step 1: Layout Shell & Navigation
+
+* Build `Header.tsx` displaying the app branding, active user avatar, and an online/offline badge.
+* Build `BottomNav.tsx` with clear icons from `lucide-react`:
+* Shopping Cart $\rightarrow$ Buy List
+* Package / Refrigerator $\rightarrow$ Pantry
+* Receipt $\rightarrow$ Expenses
+* Dollar Sign $\rightarrow$ Settlements
+
+
+* Assemble into `Shell.tsx` to handle safe-area padding for mobile navigation bars.
+
+### Step 2: Smart Buy List & Quick Restock Modal
+
+* Build `SmartBuyList.tsx`:
+* Filter active inventory to exclude items where `current_status === 'IN_STOCK'`.
+* Calculate priority score: items marked `is_essential === true` and `OUT_OF_STOCK` render first with the `★ Essential *` badge.
+
+
+* Build `RestockModal.tsx`:
+* Opens upon clicking **"Bought It"**.
+* Single amount input with auto-focus.
+* Dropdown for "Paid By" defaulting to the current user.
+* Tapping **Confirm** updates the inventory to `IN_STOCK` and appends an entry to the expense ledger.
+
+
+
+### Step 3: Pantry Grid & Quick Status Toggles
+
+* Build `PantryGrid.tsx`:
+* Render grid of all pantry staples categorized by type (Pantry, Dairy, Cleaning).
+* Group filter dropdown (`All`, `Common House`, `Non-Veg`, `Veg`).
+* Attach the 3-state toggle (`In Stock`, `Low`, `Empty`) to each card.
+* Optimistic updates: changing status immediately reflects in the UI without awaiting network round-trips.
+
+
+
+### Step 4: Expense Ledger & Budget Progress
+
+* Build `BudgetBurn.tsx`:
+* Calculate cumulative spend for `GRP_ALL` and render against `monthly_budget_target`.
+* Display auxiliary spend totals for `GRP_SUB_A` and `GRP_SUB_B`.
+
+
+* Build `ExpenseModal.tsx`:
+* Accessible from the floating action button.
+* Supports general multi-item grocery runs where items aren't mapped to a single pantry product.
+
+
+
+### Step 5: Settlement Hub & UPI Wallet Integration
+
+* Build `SettlementHub.tsx`:
+* Run the pre-calculated debt reduction engine (`debtSimplifier.ts`).
+* Render each settlement as a high-contrast card: payer $\rightarrow$ payee $\rightarrow$ amount.
+* Build the payment button using `generateUpiIntentLink()`:
+* Launches UPI apps seamlessly on Android/iOS.
+* Displays a fallback copy-UPI button for desktop users.
+
+
+
+
+
+### Step 6: PWA Configuration & Mobile Installation
+
+* Configure `vite-plugin-pwa` in `vite.config.ts`.
+* Include mobile icons and web app manifest tags (`display: standalone`, theme color `#0f172a`).
+* Test offline mode: users can open the app with Wi-Fi/data disabled, view their last synced shopping list from IndexedDB, and mark items without application crashes.
