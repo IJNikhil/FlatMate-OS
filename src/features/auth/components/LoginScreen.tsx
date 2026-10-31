@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Home, ShieldCheck, Mail, ArrowRight, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Home, ShieldCheck, Mail, ArrowRight, X, UserCheck } from 'lucide-react';
 import { useAppData } from '../../../services/store/AppDataContext';
 import { useToast } from '../../../components/ui/Toast';
 import { triggerHapticFeedback } from '../../../components/ui/haptics';
@@ -26,66 +26,136 @@ const GoogleIcon = () => (
   </svg>
 );
 
+function parseJwtPayload(token: string): { email?: string; name?: string; sub?: string } | null {
+  try {
+    const base64Url = token.split('.')[1];
+    if (!base64Url) return null;
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  } catch {
+    return null;
+  }
+}
+
 export const LoginScreen: React.FC = () => {
-  const { members, loginAsUser, refreshData } = useAppData();
+  const { members, loginAsUser } = useAppData();
   const { showToast } = useToast();
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [googleEmail, setGoogleEmail] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const googleBtnRef = useRef<HTMLDivElement>(null);
 
-  const handleContinueWithGoogle = async () => {
-    triggerHapticFeedback(25);
-    setIsProcessing(true);
+  // Initialize Google Identity Services (GIS) if client_id is available
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    const win = window as unknown as { google?: { accounts?: { id?: { initialize: (config: object) => void; renderButton: (el: HTMLElement, opts: object) => void; prompt: () => void } } } };
 
-    try {
-      // 1. Attempt automatic Google session resolution from server
-      await refreshData({ bypassCache: true });
-      const storedUserId = typeof localStorage !== 'undefined' ? localStorage.getItem('flatmate_active_user_id') : null;
-      if (storedUserId) {
-        setIsProcessing(false);
-        return; // Successfully identified; Shell will route to dashboard or onboarding
+    if (clientId && win.google?.accounts?.id) {
+      try {
+        win.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: (response: { credential?: string }) => {
+            if (response.credential) {
+              const decoded = parseJwtPayload(response.credential);
+              if (decoded?.email) {
+                performLogin(decoded.email, decoded.name);
+              }
+            }
+          }
+        });
+
+        if (googleBtnRef.current) {
+          win.google.accounts.id.renderButton(googleBtnRef.current, {
+            theme: 'outline',
+            size: 'large',
+            width: 320,
+            text: 'continue_with'
+          });
+        }
+      } catch (err) {
+        console.warn('[LoginScreen] GIS initialization error:', err);
       }
-
-      // 2. If browser requires Google account email entry
-      setIsPromptOpen(true);
-    } catch {
-      setIsPromptOpen(true);
-    } finally {
-      setIsProcessing(false);
     }
-  };
+  }, []);
 
-  const handleEmailSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanEmail = googleEmail.trim().toLowerCase();
+  const performLogin = async (rawEmail: string, preferredName?: string) => {
+    const cleanEmail = rawEmail.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes('@')) {
       showToast('Please enter a valid Google email address.', 'error');
       return;
     }
 
     setIsProcessing(true);
+    triggerHapticFeedback(25);
+
     try {
-      // Check if existing user in members list
+      // 1. Look up existing member by email
       const existing = members.find((m) => (m.email || '').toLowerCase() === cleanEmail);
       if (existing) {
         await loginAsUser(existing);
-        showToast(`Signed in as ${existing.name}`, 'success');
-      } else {
-        // Auto-provision new member
-        const displayName = cleanEmail.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
-        const newMember: Member = {
-          user_id: `USR_${Date.now().toString(36)}`,
-          name: displayName,
-          email: cleanEmail,
-          upi_id: '',
-          is_active: true
-        };
-        await loginAsUser(newMember);
-        showToast(`Welcome home, ${displayName}!`, 'success');
+        showToast(`Welcome back, ${existing.name}!`, 'success');
+        setIsPromptOpen(false);
+        return;
       }
+
+      // 2. Provision new member locally and immediately log in
+      const displayName =
+        preferredName ||
+        cleanEmail.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+
+      const newMember: Member = {
+        user_id: `USR_${Date.now().toString(36)}`,
+        name: displayName,
+        email: cleanEmail,
+        upi_id: '',
+        is_active: true
+      };
+
+      await loginAsUser(newMember);
+      showToast(`Welcome home, ${displayName}!`, 'success');
       setIsPromptOpen(false);
     } catch {
-      showToast('Failed to sign in with Google.', 'error');
+      showToast('Failed to sign in. Please try again.', 'error');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleContinueWithGoogle = () => {
+    triggerHapticFeedback(25);
+    // If GIS prompt is available and configured, attempt it
+    const win = window as unknown as { google?: { accounts?: { id?: { prompt: () => void } } } };
+    if (import.meta.env.VITE_GOOGLE_CLIENT_ID && win.google?.accounts?.id?.prompt) {
+      try {
+        win.google.accounts.id.prompt();
+      } catch {
+        // Fall back to modal
+      }
+    }
+    // Always open clean Google modal prompt immediately
+    setIsPromptOpen(true);
+  };
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await performLogin(googleEmail);
+  };
+
+  const handleSelectExistingMember = async (member: Member) => {
+    triggerHapticFeedback(30);
+    setIsProcessing(true);
+    try {
+      await loginAsUser(member);
+      showToast(`Welcome back, ${member.name}!`, 'success');
+      setIsPromptOpen(false);
+    } catch {
+      showToast('Failed to sign in as ' + member.name, 'error');
     } finally {
       setIsProcessing(false);
     }
@@ -108,7 +178,9 @@ export const LoginScreen: React.FC = () => {
         </div>
 
         {/* Primary Action: Continue with Google */}
-        <div className="pt-4">
+        <div className="pt-4 space-y-3">
+          <div ref={googleBtnRef} className="flex justify-center" />
+
           <button
             type="button"
             onClick={handleContinueWithGoogle}
@@ -143,7 +215,37 @@ export const LoginScreen: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleEmailSubmit} className="mt-5 space-y-4">
+            {/* Quick Switch if household members already loaded */}
+            {members.length > 0 && (
+              <div className="mt-4 mb-3">
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-2">
+                  Choose roommate profile:
+                </p>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                  {members.map((m) => (
+                    <button
+                      key={m.user_id}
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => handleSelectExistingMember(m)}
+                      className="flex w-full items-center justify-between rounded-xl border border-white/5 bg-slate-800/60 px-3.5 py-2.5 text-left text-sm transition-all hover:border-sky-500/40 hover:bg-slate-800"
+                    >
+                      <div>
+                        <div className="font-semibold text-slate-200">{m.name}</div>
+                        <div className="text-xs text-slate-400">{m.email || `${m.user_id}@flatmate`}</div>
+                      </div>
+                      <UserCheck size={16} className="text-sky-400 shrink-0" />
+                    </button>
+                  ))}
+                </div>
+                <div className="relative my-4">
+                  <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-white/10" /></div>
+                  <div className="relative flex justify-center text-xs"><span className="bg-slate-900 px-2 text-slate-500">or sign in with another email</span></div>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleEmailSubmit} className="mt-4 space-y-4">
               <div>
                 <label htmlFor="google-email-input" className="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-2">
                   Google Account Email

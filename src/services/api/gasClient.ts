@@ -85,7 +85,16 @@ export async function fetchDatabase<T = unknown>(
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = (await response.json()) as ApiResponse<T>;
+      const rawText = await response.text();
+      let result: ApiResponse<T>;
+      try {
+        result = JSON.parse(rawText) as ApiResponse<T>;
+      } catch {
+        if (rawText.includes('<!doctype') || rawText.includes('accounts.google.com')) {
+          throw new Error('Google Apps Script Web App must be deployed with "Execute as: Me" and "Who has access: Anyone" to allow web app access.');
+        }
+        throw new Error(`Invalid JSON response: ${rawText.slice(0, 80)}`);
+      }
 
       if (result.status === 'success' && result.payload !== undefined) {
         await set(cacheKey, result.payload);
@@ -204,7 +213,16 @@ export async function mutateDatabase<TResponse = unknown, TPayload = unknown>(
         throw new Error(`Server returned HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const result = (await response.json()) as ApiResponse<TResponse>;
+      const rawText = await response.text();
+      let result: ApiResponse<TResponse>;
+      try {
+        result = JSON.parse(rawText) as ApiResponse<TResponse>;
+      } catch {
+        if (rawText.includes('<!doctype') || rawText.includes('accounts.google.com')) {
+          throw new Error('Google Apps Script Web App must be deployed with "Execute as: Me" and "Who has access: Anyone" to allow web app access.');
+        }
+        throw new Error(`Invalid JSON response: ${rawText.slice(0, 80)}`);
+      }
 
       if (result.status === 'success') {
         return result;

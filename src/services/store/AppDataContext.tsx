@@ -49,8 +49,32 @@ interface AppState {
   logout: () => void;
 }
 
+const getInitialStoredUser = (): Member | null => {
+  if (typeof localStorage === 'undefined') return null;
+  const raw = localStorage.getItem('flatmate_active_user');
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      // ignore parse error
+    }
+  }
+  const email = localStorage.getItem('flatmate_active_email');
+  const uid = localStorage.getItem('flatmate_active_user_id');
+  if (email && uid) {
+    return {
+      user_id: uid,
+      name: email.split('@')[0],
+      email: email,
+      upi_id: '',
+      is_active: true
+    };
+  }
+  return null;
+};
+
 const defaultData: DatabasePayload = {
-  current_user: null,
+  current_user: getInitialStoredUser(),
   current_cycle: '',
   members: [],
   groups: [],
@@ -86,10 +110,30 @@ export const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!resolvedUser && typeof localStorage !== 'undefined') {
         const storedUserId = localStorage.getItem('flatmate_active_user_id');
         const storedEmail = localStorage.getItem('flatmate_active_email');
-        if (storedUserId && payload.members) {
+        const storedUserJson = localStorage.getItem('flatmate_active_user');
+
+        if (storedUserId && payload.members && payload.members.length > 0) {
           resolvedUser = payload.members.find((m) => m.user_id === storedUserId) ?? null;
-        } else if (storedEmail && payload.members) {
+        }
+        if (!resolvedUser && storedEmail && payload.members && payload.members.length > 0) {
           resolvedUser = payload.members.find((m) => (m.email || '').toLowerCase() === storedEmail.toLowerCase()) ?? null;
+        }
+
+        // If not matched in members from backend (e.g. freshly created or offline), fall back to stored user
+        if (!resolvedUser && storedUserJson) {
+          try {
+            resolvedUser = JSON.parse(storedUserJson);
+          } catch {
+            resolvedUser = null;
+          }
+        } else if (!resolvedUser && storedEmail) {
+          resolvedUser = {
+            user_id: storedUserId || `USR_${Date.now().toString(36)}`,
+            name: storedEmail.split('@')[0],
+            email: storedEmail,
+            upi_id: '',
+            is_active: true
+          };
         }
       }
 
@@ -247,11 +291,24 @@ export const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({ child
     async (member: Member) => {
       triggerHapticFeedback(30);
       if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('flatmate_active_user', JSON.stringify(member));
         localStorage.setItem('flatmate_active_user_id', member.user_id);
         localStorage.setItem('flatmate_active_email', member.email || '');
       }
-      setData((prev) => ({ ...prev, current_user: member }));
-      await loadData({ bypassCache: true });
+      setData((prev) => {
+        const exists = (prev.members ?? []).some((m) => m.user_id === member.user_id);
+        return {
+          ...prev,
+          current_user: member,
+          members: exists ? (prev.members ?? []) : [...(prev.members ?? []), member]
+        };
+      });
+
+      try {
+        await loadData({ bypassCache: true });
+      } catch (err) {
+        console.warn('[AppDataContext] Background refresh after login:', err);
+      }
     },
     [loadData]
   );
@@ -259,6 +316,7 @@ export const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const logout = useCallback(() => {
     triggerHapticFeedback(20);
     if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('flatmate_active_user');
       localStorage.removeItem('flatmate_active_user_id');
       localStorage.removeItem('flatmate_active_email');
     }
