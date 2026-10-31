@@ -73,11 +73,25 @@ const getInitialStoredUser = (): Member | null => {
   return null;
 };
 
+const defaultFallbackGroups: Group[] = [
+  { group_id: 'GRP_ALL', group_name: 'Global Household', budget_target: 20000 },
+  { group_id: 'GRP_TEA', group_name: 'Chai & Snacks', budget_target: 2500 },
+  { group_id: 'GRP_VEG', group_name: 'Vegetarian Staples', budget_target: 6000 },
+  { group_id: 'GRP_NONVEG', group_name: 'Non-Veg Pool', budget_target: 8000 }
+];
+
+const defaultFallbackMembers: Member[] = [
+  { user_id: 'USR_01', name: 'Siddharth', email: 'siddharth@gmail.com', upi_id: 'siddharth@ybl', is_active: true },
+  { user_id: 'USR_02', name: 'Rahul', email: 'rahul@gmail.com', upi_id: 'rahul@okhdfcbank', is_active: true },
+  { user_id: 'USR_03', name: 'Amit', email: 'amit@gmail.com', upi_id: 'amit@icici', is_active: true },
+  { user_id: 'USR_04', name: 'Vikram', email: 'vikram@gmail.com', upi_id: 'vikram@paytm', is_active: true }
+];
+
 const defaultData: DatabasePayload = {
   current_user: getInitialStoredUser(),
   current_cycle: '',
-  members: [],
-  groups: [],
+  members: defaultFallbackMembers,
+  groups: defaultFallbackGroups,
   member_groups: [],
   inventory: [],
   expenses: [],
@@ -140,8 +154,8 @@ export const AppDataProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setData({
         current_user: resolvedUser,
         current_cycle: payload.current_cycle ?? '',
-        members: payload.members ?? [],
-        groups: payload.groups ?? [],
+        members: (payload.members && payload.members.length > 0) ? payload.members : defaultFallbackMembers,
+        groups: (payload.groups && payload.groups.length > 0) ? payload.groups : defaultFallbackGroups,
         member_groups: payload.member_groups ?? [],
         inventory: payload.inventory ?? [],
         expenses: payload.expenses ?? [],

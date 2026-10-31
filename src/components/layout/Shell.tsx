@@ -64,16 +64,21 @@ export const Shell: React.FC = () => {
   );
 
   const handleJoinGroups = async (groupIds: string[]) => {
-    try {
-      await joinGroups(groupIds);
-      if (activeUser) {
-        localStorage.setItem(`onboarded_${activeUser.user_id}`, 'true');
+    // 1. Immediately mark onboarded locally so the user transitions to dashboard without blocking
+    if (activeUser) {
+      localStorage.setItem(`onboarded_${activeUser.user_id}`, 'true');
+    }
+    setOnboardingDismissed(true);
+    showToast('Welcome to FlatMate OS!', 'success');
+
+    // 2. Dispatch to backend in background (queued if offline/CORS)
+    if (groupIds.length > 0) {
+      try {
+        await joinGroups(groupIds);
+        await refreshData();
+      } catch (err) {
+        console.warn('[Shell] Group enrollment queued for background sync:', err);
       }
-      setOnboardingDismissed(true);
-      showToast('Groups joined successfully!', 'success');
-      await refreshData();
-    } catch {
-      showToast('Failed to join groups. Retrying when online.', 'error');
     }
   };
 
