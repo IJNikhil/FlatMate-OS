@@ -125,6 +125,8 @@ function handleResponse(e, method) {
         const now = new Date();
         const currentYearMonth = Utilities.formatDate(now, "Asia/Kolkata", "yyyy-MM");
 
+        repairAndDeduplicateMembers(doc);
+
         const members = getSheetDataAsObjects("dim_members", doc);
         const groups = getSheetDataAsObjects("dim_groups", doc);
         const memberGroups = getSheetDataAsObjects("map_member_group", doc);
@@ -799,86 +801,229 @@ function handleResponse(e, method) {
  * Supports explicit client-side email override for cross-origin PWA sign-in.
  */
 function getAuthenticatedUserEmail(clientEmail) {
-  let email = "";
+  // 1. If client provided authenticated Google email in request, prioritize it
+  if (clientEmail && String(clientEmail).indexOf("@") !== -1) {
+    return String(clientEmail).toLowerCase().trim();
+  }
+
+  // 2. If Session.getActiveUser() is available
   try {
     const activeUser = Session.getActiveUser();
     if (activeUser) {
-      email = activeUser.getEmail();
+      const activeEmail = activeUser.getEmail();
+      if (activeEmail && activeEmail.indexOf("@") !== -1) {
+        return activeEmail.toLowerCase().trim();
+      }
     }
   } catch (e) {}
 
-  if (!email) {
-    try {
-      const effectiveUser = Session.getEffectiveUser();
-      if (effectiveUser) {
-        email = effectiveUser.getEmail();
+  return "";
+}
+
+/**
+ * Repairs dim_members schema if missing 'email' header,
+ * and deletes duplicate member rows for the same email address.
+ */
+function repairAndDeduplicateMembers(doc) {
+  const membersSheet = doc.getSheetByName("dim_members");
+  if (!membersSheet) return;
+
+  const data = membersSheet.getDataRange().getValues();
+  if (data.length === 0) return;
+
+  const headers = data[0].map(function(h) { return String(h).trim().toLowerCase(); });
+  let emailIndex = headers.indexOf("email");
+
+  // Fix header row if 'email' column is missing
+  if (emailIndex === -1) {
+    membersSheet.insertColumnAfter(2);
+    membersSheet.getRange(1, 3).setValue("email");
+    emailIndex = 2;
+  }
+
+  // Reload data after potential schema insert
+  const freshData = membersSheet.getDataRange().getValues();
+  if (freshData.length <= 1) return;
+
+  const freshHeaders = freshData[0].map(function(h) { return String(h).trim().toLowerCase(); });
+  const fEmailIdx = freshHeaders.indexOf("email");
+  const fUserIdIdx = freshHeaders.indexOf("user_id");
+
+  const seenEmails = {};
+  const duplicateRows = []; // 1-based row numbers to delete
+  const userIdReplacements = {}; // duplicateUserId -> primaryUserId
+
+  for (let r = 1; r < freshData.length; r++) {
+    const row = freshData[r];
+    const uId = String(row[fUserIdIdx !== -1 ? fUserIdIdx : 0]).trim();
+    let rowEmail = fEmailIdx !== -1 ? String(row[fEmailIdx]).toLowerCase().trim() : "";
+
+    // If cell in email column is empty or invalid, scan row for an email
+    if (!rowEmail || rowEmail.indexOf("@") === -1) {
+      for (let c = 0; c < row.length; c++) {
+        const val = String(row[c]).toLowerCase().trim();
+        if (val.indexOf("@") !== -1 && val.indexOf(".") !== -1) {
+          rowEmail = val;
+          if (fEmailIdx !== -1) {
+            membersSheet.getRange(r + 1, fEmailIdx + 1).setValue(rowEmail);
+          }
+          break;
+        }
       }
-    } catch (e) {}
+    }
+
+    if (rowEmail && rowEmail.indexOf("@") !== -1) {
+      if (seenEmails[rowEmail]) {
+        duplicateRows.push(r + 1);
+        userIdReplacements[uId] = seenEmails[rowEmail];
+      } else {
+        seenEmails[rowEmail] = uId;
+      }
+    }
   }
 
-  if (!email && clientEmail) {
-    email = String(clientEmail).toLowerCase().trim();
+  // Delete duplicate rows from dim_members (bottom to top)
+  for (let d = duplicateRows.length - 1; d >= 0; d--) {
+    membersSheet.deleteRow(duplicateRows[d]);
   }
 
-  return email ? email.toLowerCase().trim() : "";
+  // Clean up duplicate member references in map_member_group
+  const mapSheet = doc.getSheetByName("map_member_group");
+  if (mapSheet) {
+    const mapData = mapSheet.getDataRange().getValues();
+    const seenGroupUser = {};
+    const mapRowsToDelete = [];
+
+    for (let m = 1; m < mapData.length; m++) {
+      const gId = String(mapData[m][1]).trim();
+      let mUserId = String(mapData[m][2]).trim();
+
+      // Replace duplicate ID with primary ID
+      if (userIdReplacements[mUserId]) {
+        mUserId = userIdReplacements[mUserId];
+        mapSheet.getRange(m + 1, 3).setValue(mUserId);
+      }
+
+      const key = gId + ":" + mUserId;
+      if (seenGroupUser[key]) {
+        mapRowsToDelete.push(m + 1);
+      } else {
+        seenGroupUser[key] = true;
+      }
+    }
+
+    for (let md = mapRowsToDelete.length - 1; md >= 0; md--) {
+      mapSheet.deleteRow(mapRowsToDelete[md]);
+    }
+  }
+
+  // Clean up duplicate budget collections
+  const colSheet = doc.getSheetByName("fact_budget_collections");
+  if (colSheet) {
+    const colData = colSheet.getDataRange().getValues();
+    const seenCol = {};
+    const colRowsToDelete = [];
+
+    for (let b = 1; b < colData.length; b++) {
+      const cycle = String(colData[b][1]).trim();
+      const gId = String(colData[b][2]).trim();
+      let bUserId = String(colData[b][3]).trim();
+
+      if (userIdReplacements[bUserId]) {
+        bUserId = userIdReplacements[bUserId];
+        colSheet.getRange(b + 1, 4).setValue(bUserId);
+      }
+
+      const key = cycle + ":" + gId + ":" + bUserId;
+      if (seenCol[key]) {
+        colRowsToDelete.push(b + 1);
+      } else {
+        seenCol[key] = true;
+      }
+    }
+
+    for (let cd = colRowsToDelete.length - 1; cd >= 0; cd--) {
+      colSheet.deleteRow(colRowsToDelete[cd]);
+    }
+  }
 }
 
 /**
  * Resolves a Member object from dim_members by email or explicit user_id.
- * If user does not exist, auto-provisions a new member and assigns them to GRP_ALL.
+ * If user does not exist, auto-provisions a single unique member and assigns them to GRP_ALL.
  */
 function resolveMemberByEmail(email, doc, explicitUserId) {
   const membersSheet = doc.getSheetByName("dim_members");
   if (!membersSheet) return null;
 
-  const data = membersSheet.getDataRange().getValues();
-  if (data.length > 1) {
-    const headers = data[0].map(function(h) { return String(h).trim(); });
-    const emailIndex = headers.indexOf("email");
-    const userIdIndex = headers.indexOf("user_id");
-    const nameIndex = headers.indexOf("name");
-    const upiIndex = headers.indexOf("upi_id");
-    const activeIndex = headers.indexOf("is_active");
+  // Ensure schema and dedup rows first
+  repairAndDeduplicateMembers(doc);
 
-    if (email) {
-      for (let i = 1; i < data.length; i++) {
-        const rowEmail = emailIndex !== -1 ? String(data[i][emailIndex]).toLowerCase().trim() : "";
-        if (rowEmail === email) {
-          return {
-            user_id: String(data[i][userIdIndex]),
-            name: String(data[i][nameIndex]),
-            email: rowEmail,
-            upi_id: upiIndex !== -1 ? String(data[i][upiIndex]) : "",
-            is_active: activeIndex !== -1 ? Boolean(data[i][activeIndex]) : true
-          };
+  if (!email && !explicitUserId) return null;
+
+  const data = membersSheet.getDataRange().getValues();
+  if (data.length <= 1) return null;
+
+  const headers = data[0].map(function(h) { return String(h).trim().toLowerCase(); });
+  let emailIndex = headers.indexOf("email");
+  let userIdIndex = headers.indexOf("user_id");
+  let nameIndex = headers.indexOf("name");
+  let upiIndex = headers.indexOf("upi_id");
+  let activeIndex = headers.indexOf("is_active");
+
+  const normalizedEmail = email ? String(email).toLowerCase().trim() : "";
+  const normalizedId = explicitUserId ? String(explicitUserId).trim() : "";
+
+  // 1. Search by email
+  if (normalizedEmail) {
+    for (let i = 1; i < data.length; i++) {
+      let rowEmail = emailIndex !== -1 ? String(data[i][emailIndex]).toLowerCase().trim() : "";
+      if (!rowEmail) {
+        for (let c = 0; c < data[i].length; c++) {
+          const val = String(data[i][c]).toLowerCase().trim();
+          if (val === normalizedEmail) {
+            rowEmail = val;
+            break;
+          }
         }
       }
-    }
 
-    if (explicitUserId) {
-      for (let j = 1; j < data.length; j++) {
-        const rowUserId = userIdIndex !== -1 ? String(data[j][userIdIndex]).trim() : "";
-        if (rowUserId === String(explicitUserId).trim()) {
-          return {
-            user_id: rowUserId,
-            name: String(data[j][nameIndex]),
-            email: emailIndex !== -1 ? String(data[j][emailIndex]) : "",
-            upi_id: upiIndex !== -1 ? String(data[j][upiIndex]) : "",
-            is_active: activeIndex !== -1 ? Boolean(data[j][activeIndex]) : true
-          };
-        }
+      if (rowEmail === normalizedEmail) {
+        return {
+          user_id: String(data[i][userIdIndex !== -1 ? userIdIndex : 0]),
+          name: String(data[i][nameIndex !== -1 ? nameIndex : 1]),
+          email: rowEmail,
+          upi_id: upiIndex !== -1 ? String(data[i][upiIndex]) : "",
+          is_active: activeIndex !== -1 ? Boolean(data[i][activeIndex]) : true
+        };
       }
     }
   }
 
-  // Auto-provision brand new user if valid email was provided
-  if (email && email.indexOf("@") !== -1) {
+  // 2. Search by explicit user ID
+  if (normalizedId) {
+    for (let j = 1; j < data.length; j++) {
+      const rowId = String(data[j][userIdIndex !== -1 ? userIdIndex : 0]).trim();
+      if (rowId === normalizedId) {
+        return {
+          user_id: rowId,
+          name: String(data[j][nameIndex !== -1 ? nameIndex : 1]),
+          email: emailIndex !== -1 ? String(data[j][emailIndex]) : "",
+          upi_id: upiIndex !== -1 ? String(data[j][upiIndex]) : "",
+          is_active: activeIndex !== -1 ? Boolean(data[j][activeIndex]) : true
+        };
+      }
+    }
+  }
+
+  // 3. Auto-provision ONLY if valid email was provided AND does not already exist
+  if (normalizedEmail && normalizedEmail.indexOf("@") !== -1) {
     const newUserId = "USR_" + Utilities.getUuid().substring(0, 8);
-    const displayName = email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+    const displayName = normalizedEmail.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, function(l) { return l.toUpperCase(); });
     const newMember = {
       user_id: newUserId,
       name: displayName,
-      email: email,
+      email: normalizedEmail,
       upi_id: "",
       is_active: true
     };
